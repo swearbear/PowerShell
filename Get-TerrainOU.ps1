@@ -1,8 +1,8 @@
 ﻿function Get-TerrainOU {
     param(
         [string]$SiteName,
-        [string]$Server = "muhj-dc-001v",
-        [string]$ZoneName = "area52.afnoapps.usaf.mil"
+        [string]$Server,
+        [string]$ZoneName
     )
 
     $Site = [System.DirectoryServices.ActiveDirectory.Forest]::GetCurrentForest().Sites |? Name -eq $SiteName
