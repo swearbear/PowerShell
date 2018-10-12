@@ -265,6 +265,13 @@ $ScriptBlock = {
         else { Get-WinEvent @params }
     }
 
+    # Set up variables for execution local or remote
+    if ($using:LogName) {$LogName = $using:LogName}
+    if ($using:XPath) {$XPath = $using:XPath}
+    if ($using:MaxEvents) {$MaxEvents = $using:MaxEvents}
+    if ($using:SecondaryFilter) {$SecondaryFilter = $using:SecondaryFilter}
+    if ($using:ArchiveNewerThan) {$ArchiveNewerThan = $using:ArchiveNewerThan}
+
     #$DebugPreference = "Continue"
     Write-Host "Searching live log..." -ForegroundColor Yellow
     getWinEvtWhere $using:LogName $using:XPath $using:MaxEvents $using:SecondaryFilter | Get-WinEventData |
@@ -282,4 +289,5 @@ $ScriptBlock = {
     }
 }
 
-Invoke-Command -ComputerName $ComputerName -ScriptBlock $ScriptBlock
+if ($ComputerName) { Invoke-Command -ComputerName $ComputerName -ScriptBlock $ScriptBlock }
+else { Invoke-Command -ScriptBlock $ScriptBlock }

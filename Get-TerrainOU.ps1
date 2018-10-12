@@ -127,6 +127,7 @@
     }
 
     $OUs = @()
+    $Site.Subnets
     foreach ($net in $Site.Subnets) {
         Get-DnsServerResourceRecord -ComputerName $Server -ZoneName $ZoneName -RRType A |
             ? HostName -ne "@" |Filter-IsInSubnet -Network $net.Name |Select -ExpandProperty HostName |
