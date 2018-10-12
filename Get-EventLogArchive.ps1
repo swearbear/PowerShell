@@ -5,13 +5,13 @@
    Get the file paths of archived event logs matching a given date criteria
 .EXAMPLE
    Get-EventLogArchive -FilePath C:\Windows\System32\WinEvt\Logs -NewerThan (Get-Date).AddDays(-30)
-   Return the last 30 days of archived event log file paths in the Windows default event log directory.
+   # Return the last 30 days of archived event log file paths in the Windows default event log directory.
 .EXAMPLE
    Get-EventLogArchive -LogName ForwardedEvents -ComputerName WEC01 -NewerThan (Get-Date).AddDays(-7)
-   Return the last 7 days of archived event log file paths from the directory path of the ForwardedEvents log.
+   # Return the last 7 days of archived event log file paths from the directory path of the ForwardedEvents log.
 .EXAMPLE
    Get-EventLogArchive -LogName ForwardedEvents -OlderThan (Get-Date).AddDays(-30) |% {Compress-Archive $_ D:\ArchivedEvents\}
-   An example of using this function in a scheduled task to compress archived event logs older than 30 days.
+   # An example of using this function in a scheduled task to compress archived event logs older than 30 days.
 .INPUTS
    Directory path or Windows Event Log name.
    By containing directory (e.g. "C:\Windows\System32\winevt\Logs")
@@ -19,12 +19,13 @@
 .OUTPUTS
    Matching file path(s)
 .NOTES
-   Author: Chester Swearingen
+   Author: Swearbear
    Version: 1.0
-   Release: 10 Oct 2018.
 #>
-function Get-EventLogArchive {
-    param(
+function Get-EventLogArchive
+{
+    param
+    (
         [Parameter(Mandatory=$true,ParameterSetName='FilePath')]
         [string] $FilePath,
 
@@ -53,23 +54,28 @@ function Get-EventLogArchive {
     )
 
     # Required function to convert date strings to [DateTime]
-    function Get-ParsedDate {
-        param(
+    function Get-ParsedDate
+    {
+        param
+        (
             [Parameter(Mandatory=$true)]
             [string] $InputString,
-
+    
             [Parameter(Mandatory=$true)]
             [string] $FormatString,
-
+    
             [System.Globalization.CultureInfo] $Provider = [System.Globalization.CultureInfo]::InvariantCulture,
-
+    
             [System.Globalization.DateTimeStyles] $DateTimeStyles = [System.Globalization.DateTimeStyles]::None,
-
+    
             [switch] $Exact
         )
-
+    
         [ref]$parsedDate = Get-Date
-        if ([DateTime]::TryParseExact($InputString, $FormatString, $Provider, $DateTimeStyles, $parsedDate))
+        [regex]$pattern = $FormatString -replace '((?<!y)yy(?!y)|(?<!M)MM(?!M)|(?<!d)dd(?!d)|(?<!H)HH(?!H)|(?<!h)hh(?!h)|(?<!m)mm(?!m)|(?<!s)ss(?!s))','\d\d' -replace '(?<!y)yyyy(?!y)','\d{4}' -replace '(?<!M)MMM(?!M)','[A-Z]{3}'
+        $dateString = $pattern.Match($InputString).Value
+    
+        if ([DateTime]::TryParseExact($dateString, $FormatString, $Provider, $DateTimeStyles, $parsedDate))
         {
             Write-Output $parsedDate.Value
         }
@@ -83,7 +89,7 @@ function Get-EventLogArchive {
         if ($PSBoundParameters.ContainsKey('ComputerName'))
         {
             # Get IPv4 addresses from the local computer for comparison with the $ComputerName parameter
-            $IPv4Address = Get-WmiObject win32_networkadapterconfiguration |? {$_.IPEnabled -eq $true} |% {$_.IPAddress |? {$_ -match '(\d{1,3}\.){3}\d{1,3}'}}
+            $IPv4Address = Get-WmiObject win32_networkadapterconfiguration |Where-Object {$_.IPEnabled -eq $true} |ForEach-Object {$_.IPAddress |Where-Object {$_ -match '(\d{1,3}\.){3}\d{1,3}'}}
             $localhost = "$env:COMPUTERNAME|localhost|127.0.0.1|$($IPv4Address -join '|')"
             if ($ComputerName -match $localhost)
             {
@@ -120,8 +126,8 @@ function Get-EventLogArchive {
 
 
     $Item = Get-Item $FilePath -ErrorAction Stop
-    $Directory = $Item |? { $_ -is [System.IO.DirectoryInfo] }
-    $Files = $Item |? { ($_ -is [System.IO.FileInfo]) -and ($_.Extension -eq $FileExtension) }
+    $Directory = $Item |Where-Object { $_ -is [System.IO.DirectoryInfo] }
+    $Files = $Item |Where-Object { ($_ -is [System.IO.FileInfo]) -and ($_.Extension -eq $FileExtension) }
     if (-Not $Files)
     {
         if (-Not $Directory)
@@ -140,16 +146,16 @@ function Get-EventLogArchive {
         }
     }
 
-    $FileNameList = $Files |% { $_.FullName }
+    $FileNameList = $Files |ForEach-Object { $_.FullName }
 
-    $FileNameList |% {
+    $FileNameList |ForEach-Object {
         $dateString = $Pattern.Match($_).Value
         if ($dateString)
         {
             $ArchiveDate = Get-ParsedDate -InputString $dateString -FormatString "yyyy-MM-dd-HH-mm-ss"
             if (($NewerThan) -and ($OlderThan))
             {
-                if ($ArchiveDate |? {($_ -gt $NewerThan) -and ($_ -lt $OlderThan)})
+                if ($ArchiveDate |Where-Object {($_ -gt $NewerThan) -and ($_ -lt $OlderThan)})
                 {
                     New-Object pscustomobject -Property ([ordered]@{
                         ArchiveDate = $ArchiveDate
@@ -159,7 +165,7 @@ function Get-EventLogArchive {
             }
             elseif ($NewerThan)
             {
-                if ($ArchiveDate |? {$_ -gt $NewerThan})
+                if ($ArchiveDate |Where-Object {$_ -gt $NewerThan})
                 {
                     New-Object pscustomobject -Property ([ordered]@{
                         ArchiveDate = $ArchiveDate
@@ -169,7 +175,7 @@ function Get-EventLogArchive {
             }
             elseif ($OlderThan)
             {
-                if ($ArchiveDate |? {$_ -lt $OlderThan})
+                if ($ArchiveDate |Where-Object {$_ -lt $OlderThan})
                 {
                     New-Object pscustomobject -Property ([ordered]@{
                         ArchiveDate = $ArchiveDate

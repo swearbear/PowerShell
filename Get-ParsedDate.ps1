@@ -5,19 +5,20 @@
    Simplifies the conversion of arbitrary date/time strings to DateTime objects.  Really just a wrapper around the System.DateTime.TryParseExact method.
 .EXAMPLE
    Get-ParsedDate -InputString "Archive-EventLog-2018-10-03-11-03-50-877.evtx" -FormatString "yyyy-MM-dd-HH-mm-ss"
-.Input
+.INPUT
    String object with a date.
    Custom date string that matches the date substring of the input string.
-.Output
+.OUTPUT
    DateTime object
 .Notes
-   Author: Chester Swearingen
+   Author: Swearbear
    Version: 1.0
-   Release: 10 Oct 2018
 #>
 
-function Get-ParsedDate {
-    param(
+function Get-ParsedDate
+{
+    param
+    (
         [Parameter(Mandatory=$true)]
         [string] $InputString,
 
