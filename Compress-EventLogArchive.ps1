@@ -4,14 +4,14 @@
 .DESCRIPTION
    Designed for use as a scheduled task, this script will compress archived event logs (.evtx).  The script takes a source directory and destination directory as input.  It also has a parameter to identify how many days old the archived event log should be to qualify for compression.  This script supports Windows Server versions 2008R2, 2012, 2012R2, 2016 and PowerShell versions v2 through v5.1.  In order to support older versions, this script doesn't use the Compress-Archive cmdlet introduced in PowerShell v5.
 .EXAMPLE
-   .\Compress-EventLogArchive.ps1 -Path C:\Windows\System32\winevt\Logs -Destination D:\Archived
-   Basic usage to compress all archived .evtx files in source directory and moving them to the destination directory.
+   Compress-EventLogArchive.ps1 -Path C:\Windows\System32\winevt\Logs -Destination D:\Archived
+   # Basic usage to compress all archived .evtx files in source directory and moving them to the destination directory.
 .EXAMPLE
-   .\Compress-EventLogArchive.ps1 D:\ForwardedEvents D:\Archived -DaysOld 30
-   Only compress archive .evtx files that are 30 days and older.
+   Compress-EventLogArchive.ps1 D:\ForwardedEvents D:\Archived -DaysOld 30
+   # Only compress archive .evtx files that are 30 days and older.
 .EXAMPLE
-   powershell.exe -noninteractive -executionpolicy bypass -file .\Compress-EventLogArchive.ps1 D:\ForwardedEvents D:\Archived -DaysOld 30
-   Using the script in a scheduled task.
+   powershell.exe -noninteractive -executionpolicy bypass -file C:\Scripts\Compress-EventLogArchive.ps1 D:\ForwardedEvents D:\Archived -DaysOld 30
+   # Using the script in a scheduled task.
 .Notes
    Author: Chester Swearingen
    Version: 1.0
@@ -28,160 +28,171 @@ param(
 )
     #[int]$Count = 1,    # for testing/debuging
 
-# Regex to select date pattern in archived filenames
-[regex] $Pattern = '(?<=[\\\$\:\w\-_]*\-)\d{4}(\-\d{2}){5}(?=\-\d{3}.(evtx|zip)$)'
-
-# Required function for parsing dates from strings
-function Get-ParsedDate {
-    param(
-        [Parameter(Mandatory=$true)]
-        [string] $InputString,
-
-        [Parameter(Mandatory=$true)]
-        [string] $FormatString,
-
-        [System.Globalization.CultureInfo] $Provider = [System.Globalization.CultureInfo]::InvariantCulture,
-
-        [System.Globalization.DateTimeStyles] $DateTimeStyles = [System.Globalization.DateTimeStyles]::None,
-
-        [switch] $Exact
-    )
-
-    [ref]$parsedDate = Get-Date
-    if ([DateTime]::TryParseExact($InputString, $FormatString, $Provider, $DateTimeStyles, $parsedDate))
-    {
-        Write-Output $parsedDate.Value
-    }
-}
-
 # Required function for getting archived evtx files based on date
 function Get-EventLogArchive {
+    param(
+        [Parameter(Mandatory=$true,ParameterSetName='FilePath')]
+        [string] $FilePath,
+
+        [Parameter(Mandatory=$true,ParameterSetName='LogName')]
+        [string] $LogName,
+
+        [Parameter(Mandatory=$false,ParameterSetName='LogName')]
+        [Alias('Cn')]
+        [string] $ComputerName,
+
+        [Parameter(Mandatory=$false,ParameterSetName='FilePath')]
+        [Parameter(Mandatory=$false,ParameterSetName='LogName')]
+        [regex] $Pattern = '(?<=[\\\$\:\w\-_]*\-)\d{4}(\-\d{2}){5}(?=\-\d{3}.(evtx|zip)$)',
+
+        [Parameter(Mandatory=$false,ParameterSetName='FilePath')]
+        [Parameter(Mandatory=$false,ParameterSetName='LogName')]
+        [string] $FileExtension = ".evtx",
+
+        [Parameter(Mandatory=$false,ParameterSetName='FilePath')]
+        [Parameter(Mandatory=$false,ParameterSetName='LogName')]
+        [datetime] $NewerThan,
+
+        [Parameter(Mandatory=$false,ParameterSetName='FilePath')]
+        [Parameter(Mandatory=$false,ParameterSetName='LogName')]
+        [datetime] $OlderThan
+    )
+
+    function Get-ParsedDate {
         param(
-            [Parameter(Mandatory=$true,ParameterSetName='FilePath')]
-            [string] $FilePath,
+            [Parameter(Mandatory=$true)]
+            [string] $InputString,
 
-            [Parameter(Mandatory=$true,ParameterSetName='LogName')]
-            [string] $LogName,
+            [Parameter(Mandatory=$true)]
+            [string] $FormatString,
 
-            [Parameter(Mandatory=$false,ParameterSetName='LogName')]
-            [Alias('Cn')]
-            [string] $ComputerName,
+            [System.Globalization.CultureInfo] $Provider = [System.Globalization.CultureInfo]::InvariantCulture,
 
-            [Parameter(Mandatory=$false,ParameterSetName='FilePath')]
-            [Parameter(Mandatory=$false,ParameterSetName='LogName')]
-            [regex] $Pattern = '(?<=[\\\$\:\w\-_]*\-)\d{4}(\-\d{2}){5}(?=\-\d{3}.(evtx|zip)$)',
+            [System.Globalization.DateTimeStyles] $DateTimeStyles = [System.Globalization.DateTimeStyles]::None,
 
-            [Parameter(Mandatory=$false,ParameterSetName='FilePath')]
-            [Parameter(Mandatory=$false,ParameterSetName='LogName')]
-            [string] $FileExtension = ".evtx",
-
-            [Parameter(Mandatory=$false,ParameterSetName='FilePath')]
-            [Parameter(Mandatory=$false,ParameterSetName='LogName')]
-            [datetime] $NewerThan,
-
-            [Parameter(Mandatory=$false,ParameterSetName='FilePath')]
-            [Parameter(Mandatory=$false,ParameterSetName='LogName')]
-            [datetime] $OlderThan
+            [switch] $Exact
         )
 
-        # ParameterSet 'LogName'
-        if ($PSCmdlet.ParameterSetName -eq 'LogName')
+        [ref]$parsedDate = Get-Date
+        if ([DateTime]::TryParseExact($InputString, $FormatString, $Provider, $DateTimeStyles, $parsedDate))
         {
-            $getWinEventParams = @{ListLog = $LogName}
-            if ($PSBoundParameters.ContainsKey('ComputerName'))
-            {
-                # Get IPv4 addresses from the local computer for comparison with the $ComputerName parameter
-                $IPv4Address = Get-WmiObject win32_networkadapterconfiguration |? {$_.IPEnabled -eq $true} |% {$_.IPAddress |? {$_ -match '(\d{1,3}\.){3}\d{1,3}'}}
-                $localhost = "$env:COMPUTERNAME|localhost|127.0.0.1|$($IPv4Address -join '|')"
-                if ($ComputerName -match $localhost)
-                {
-                    $PSBoundParameters.Remove('ComputerName') > $null
-                }
-                else
-                {
-                    $getWinEventParams.Add('ComputerName', $ComputerName)
-                }
-            }
+            Write-Output $parsedDate.Value
+        }
+    }
 
-            $log = Get-WinEvent @getWinEventParams
 
-            if (($log) -and ($log.LogMode -eq 'AutoBackup'))
+
+    # ParameterSet 'LogName'
+    if ($PSCmdlet.ParameterSetName -eq 'LogName')
+    {
+        $getWinEventParams = @{ListLog = $LogName}
+        if ($PSBoundParameters.ContainsKey('ComputerName'))
+        {
+            # Get IPv4 addresses from the local computer for comparison with the $ComputerName parameter
+            $IPv4Address = Get-WmiObject win32_networkadapterconfiguration |? {$_.IPEnabled -eq $true} |% {$_.IPAddress |? {$_ -match '(\d{1,3}\.){3}\d{1,3}'}}
+            $localhost = "$env:COMPUTERNAME|localhost|127.0.0.1|$($IPv4Address -join '|')"
+            if ($ComputerName -match $localhost)
             {
-                if ($getWinEventParams.ContainsKey('ComputerName'))
-                {
-                    $FilePath = (Split-Path $log.LogFilePath -Parent)
-                    $drive = (Split-Path $FilePath -Qualifier) -replace '\:','$'
-                    $path = Split-Path $FilePath -NoQualifier
-                    $FilePath = Join-Path "\\$ComputerName\$drive" $path
-                }
-                else
-                {
-                    $FilePath = (Split-Path $log.LogFilePath -Parent)
-                }
+                $PSBoundParameters.Remove('ComputerName') > $null
             }
             else
             {
-                Write-Error ("Archived event logs not found for LogName: {0} on computer: {1}" -f $LogName,$ComputerName) -ErrorAction Stop
-                exit
+                $getWinEventParams.Add('ComputerName', $ComputerName)
             }
         }
 
+        $log = Get-WinEvent @getWinEventParams
 
-        $Item = Get-Item $FilePath -ErrorAction Stop
-        $Directory = $Item |? { $_ -is [System.IO.DirectoryInfo] }
-        $Files = $Item |? { ($_ -is [System.IO.FileInfo]) -and ($_.Extension -eq $FileExtension) }
-        if (-Not $Files)
+        if (($log) -and ($log.LogMode -eq 'AutoBackup'))
         {
-            if (-Not $Directory)
+            if ($getWinEventParams.ContainsKey('ComputerName'))
+            {
+                $FilePath = (Split-Path $log.LogFilePath -Parent)
+                $drive = (Split-Path $FilePath -Qualifier) -replace '\:','$'
+                $path = Split-Path $FilePath -NoQualifier
+                $FilePath = Join-Path "\\$ComputerName\$drive" $path
+            }
+            else
+            {
+                $FilePath = (Split-Path $log.LogFilePath -Parent)
+            }
+        }
+        else
+        {
+            Write-Error ("Archived event logs not found for LogName: {0} on computer: {1}" -f $LogName,$ComputerName) -ErrorAction Stop
+            exit
+        }
+    }
+
+
+    $Item = Get-Item $FilePath -ErrorAction Stop
+    $Directory = $Item |? { $_ -is [System.IO.DirectoryInfo] }
+    $Files = $Item |? { ($_ -is [System.IO.FileInfo]) -and ($_.Extension -eq $FileExtension) }
+    if (-Not $Files)
+    {
+        if (-Not $Directory)
+        {
+            Write-Error "Event log archive not found at path: $Path" -ErrorAction Stop
+            exit
+        }
+        else
+        {
+            $Files = Get-ChildItem $Directory -File -Filter "*$FileExtension"
+            if (-Not $Files)
             {
                 Write-Error "Event log archive not found at path: $Path" -ErrorAction Stop
                 exit
             }
-            else
+        }
+    }
+
+    $FileNameList = $Files |% { $_.FullName }
+
+    $FileNameList |% {
+        $dateString = $Pattern.Match($_).Value
+        if ($dateString)
+        {
+            $ArchiveDate = Get-ParsedDate -InputString $dateString -FormatString "yyyy-MM-dd-HH-mm-ss"
+            if (($NewerThan) -and ($OlderThan))
             {
-                $Files = Get-ChildItem $Directory -File -Filter "*$FileExtension"
-                if (-Not $Files)
+                if ($ArchiveDate |? {($_ -gt $NewerThan) -and ($_ -lt $OlderThan)})
                 {
-                    Write-Error "Event log archive not found at path: $Path" -ErrorAction Stop
-                    exit
+                    New-Object pscustomobject -Property ([ordered]@{
+                        ArchiveDate = $ArchiveDate
+                        Path = $_
+                    })
                 }
             }
-        }
-
-        $FileNameList = $Files |% { $_.FullName }
-
-        $FileNameList |% {
-            $dateString = $Pattern.Match($_).Value
-            if ($dateString)
+            elseif ($NewerThan)
             {
-                if (($NewerThan) -and ($OlderThan))
+                if ($ArchiveDate |? {$_ -gt $NewerThan})
                 {
-                    if (Get-ParsedDate -InputString $dateString -FormatString "yyyy-MM-dd-HH-mm-ss" |? {($_ -gt $NewerThan) -and ($_ -lt $OlderThan)})
-                    {
-                        $_
-                    }
+                    New-Object pscustomobject -Property ([ordered]@{
+                        ArchiveDate = $ArchiveDate
+                        Path = $_
+                    })
                 }
-                elseif ($NewerThan)
+            }
+            elseif ($OlderThan)
+            {
+                if ($ArchiveDate |? {$_ -lt $OlderThan})
                 {
-                    if (Get-ParsedDate -InputString $dateString -FormatString "yyyy-MM-dd-HH-mm-ss" |? {$_ -gt $NewerThan})
-                    {
-                        $_
-                    }
+                    New-Object pscustomobject -Property ([ordered]@{
+                        ArchiveDate = $ArchiveDate
+                        Path = $_
+                    })
                 }
-                elseif ($OlderThan)
-                {
-                    if (Get-ParsedDate -InputString $dateString -FormatString "yyyy-MM-dd-HH-mm-ss" |? {$_ -lt $OlderThan})
-                    {
-                        $_
-                    }
-                }
-                else
-                {
-                    $_
-                }
+            }
+            else
+            {
+                New-Object pscustomobject -Property ([ordered]@{
+                    ArchiveDate = $ArchiveDate
+                    Path = $_
+                })
             }
         }
     }
+}
 
 # Create destination directory and don't tell me if it already exists, or give me output when it creates it.
 function mkdir-quiet ($path) {
@@ -196,10 +207,10 @@ function mkdir-quiet ($path) {
 
 # Get the matching, evtx filepaths.
 # Declare variable as string array in case only one value is assigned
-[string[]]$ArchivedLogs = Get-EventLogArchive -FilePath $Path -FileExtension '.evtx' -OlderThan (Get-Date).AddDays(-$DaysOld) |sort
+$ArchivedLogs = @(Get-EventLogArchive -FilePath $Path -FileExtension '.evtx' -OlderThan (Get-Date).AddDays(-$DaysOld) |sort Path)
 
 # Test for found files, exit script if none.
-if ($ArchivedLogs -eq $null) {
+if (($ArchivedLogs -eq $null) -or ($ArchivedLogs.Length -eq 0)) {
     Write-Error "No archived event logs found."
     exit
 }
@@ -224,25 +235,22 @@ for ($i=0; $i -lt $ArchivedLogs.Count; $i++) {
         }
         Write-Progress @params
     }
-
-    # Get the timestamp from this filename and convert to [DateTime]
-    $date = Get-ParsedDate -InputString $Pattern.Match($ArchivedLogs[$i]).Value -FormatString "yyyy-MM-dd-HH-mm-ss"
     
     # Make a subdirectory named for the year the archive was created
-    $DestYearDir = Join-Path $Destination $date.Year
+    $DestYearDir = Join-Path $Destination $ArchivedLogs[$i].ArchiveDate.Year
     mkdir-quiet $DestYearDir
 
     # Derive the compressed directory name from the evtx filename
     # Use this to make a temp directory
-    $zipDirectoryName = $ArchivedLogs[$i] -replace '\.evtx$'
+    $zipDirectoryName = $ArchivedLogs[$i].Path -replace '\.evtx$'
     mkdir-quiet $zipDirectoryName
 
     # Move .evtx file inside same-name directory.
     # The only built-in, .NET method for zip compression requires a directory.
-    Move-Item $ArchivedLogs[$i] $zipDirectoryName -ea stop
+    Move-Item $ArchivedLogs[$i].Path $zipDirectoryName -ea stop
 
     # Verify the previous file move before compression
-    if (Test-Path (Join-Path $zipDirectoryName (Split-Path $ArchivedLogs[$i] -Leaf))) {
+    if (Test-Path (Join-Path $zipDirectoryName (Split-Path $ArchivedLogs[$i].Path -Leaf))) {
 
         # Set up path variables for zip destination
         $fileBaseName = Split-Path $zipDirectoryName -Leaf
@@ -255,7 +263,7 @@ for ($i=0; $i -lt $ArchivedLogs.Count; $i++) {
 
             # Since something went wrong with creating the zip file, undo all previous file moves
             Write-Error "Error creating compressed folder."
-            Move-Item (Join-Path $zipDirectoryName (Split-Path $ArchivedLogs[$i] -Leaf)) $ArchivedLogs[$i]
+            Move-Item (Join-Path $zipDirectoryName (Split-Path $ArchivedLogs[$i].Path -Leaf)) $ArchivedLogs[$i].Path
         }
     }
 
