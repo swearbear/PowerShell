@@ -4,14 +4,14 @@
 .DESCRIPTION
    Designed for use as a scheduled task, this script will compress archived event logs (.evtx).  The script takes a source directory and destination directory as input.  It also has a parameter to identify how many days old the archived event log should be to qualify for compression.  This script supports Windows Server versions 2008R2, 2012, 2012R2, 2016 and PowerShell versions v2 through v5.1.  In order to support older versions, this script doesn't use the Compress-Archive cmdlet introduced in PowerShell v5.
 .EXAMPLE
-   .\Compress-EventLogArchive.ps1 -Path C:\Windows\System32\winevt\Logs -Destination D:\Archived
-   Basic usage to compress all archived .evtx files in source directory and moving them to the destination directory.
+   Compress-EventLogArchive.ps1 -Path C:\Windows\System32\winevt\Logs -Destination D:\Archived
+   # Basic usage to compress all archived .evtx files in source directory and moving them to the destination directory.
 .EXAMPLE
-   .\Compress-EventLogArchive.ps1 D:\ForwardedEvents D:\Archived -DaysOld 30
-   Only compress archive .evtx files that are 30 days and older.
+   Compress-EventLogArchive.ps1 D:\ForwardedEvents D:\Archived -DaysOld 30
+   # Only compress archive .evtx files that are 30 days and older.
 .EXAMPLE
-   powershell.exe -noninteractive -executionpolicy bypass -file .\Compress-EventLogArchive.ps1 D:\ForwardedEvents D:\Archived -DaysOld 30
-   Using the script in a scheduled task.
+   powershell.exe -noninteractive -executionpolicy bypass -file C:\Scripts\Compress-EventLogArchive.ps1 D:\ForwardedEvents D:\Archived -DaysOld 30
+   # Using the script in a scheduled task.
 .Notes
    Author: Chester Swearingen
    Version: 1.0
