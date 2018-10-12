@@ -89,7 +89,7 @@ function Get-EventLogArchive {
         if ($PSBoundParameters.ContainsKey('ComputerName'))
         {
             # Get IPv4 addresses from the local computer for comparison with the $ComputerName parameter
-            $IPv4Address = Get-WmiObject win32_networkadapterconfiguration |? {$_.IPEnabled -eq $true} |% {$_.IPAddress |? {$_ -match '(\d{1,3}\.){3}\d{1,3}'}}
+            $IPv4Address = Get-WmiObject win32_networkadapterconfiguration |Where-Object {$_.IPEnabled -eq $true} |ForEach-Object {$_.IPAddress |Where-Object {$_ -match '(\d{1,3}\.){3}\d{1,3}'}}
             $localhost = "$env:COMPUTERNAME|localhost|127.0.0.1|$($IPv4Address -join '|')"
             if ($ComputerName -match $localhost)
             {
@@ -126,8 +126,8 @@ function Get-EventLogArchive {
 
 
     $Item = Get-Item $FilePath -ErrorAction Stop
-    $Directory = $Item |? { $_ -is [System.IO.DirectoryInfo] }
-    $Files = $Item |? { ($_ -is [System.IO.FileInfo]) -and ($_.Extension -eq $FileExtension) }
+    $Directory = $Item |Where-Object { $_ -is [System.IO.DirectoryInfo] }
+    $Files = $Item |Where-Object { ($_ -is [System.IO.FileInfo]) -and ($_.Extension -eq $FileExtension) }
     if (-Not $Files)
     {
         if (-Not $Directory)
@@ -146,16 +146,16 @@ function Get-EventLogArchive {
         }
     }
 
-    $FileNameList = $Files |% { $_.FullName }
+    $FileNameList = $Files |ForEach-Object { $_.FullName }
 
-    $FileNameList |% {
+    $FileNameList |ForEach-Object {
         $dateString = $Pattern.Match($_).Value
         if ($dateString)
         {
             $ArchiveDate = Get-ParsedDate -InputString $dateString -FormatString "yyyy-MM-dd-HH-mm-ss"
             if (($NewerThan) -and ($OlderThan))
             {
-                if ($ArchiveDate |? {($_ -gt $NewerThan) -and ($_ -lt $OlderThan)})
+                if ($ArchiveDate |Where-Object {($_ -gt $NewerThan) -and ($_ -lt $OlderThan)})
                 {
                     New-Object pscustomobject -Property ([ordered]@{
                         ArchiveDate = $ArchiveDate
@@ -165,7 +165,7 @@ function Get-EventLogArchive {
             }
             elseif ($NewerThan)
             {
-                if ($ArchiveDate |? {$_ -gt $NewerThan})
+                if ($ArchiveDate |Where-Object {$_ -gt $NewerThan})
                 {
                     New-Object pscustomobject -Property ([ordered]@{
                         ArchiveDate = $ArchiveDate
@@ -175,7 +175,7 @@ function Get-EventLogArchive {
             }
             elseif ($OlderThan)
             {
-                if ($ArchiveDate |? {$_ -lt $OlderThan})
+                if ($ArchiveDate |Where-Object {$_ -lt $OlderThan})
                 {
                     New-Object pscustomobject -Property ([ordered]@{
                         ArchiveDate = $ArchiveDate
@@ -207,10 +207,10 @@ function mkdir-quiet ($path) {
 
 # Get the matching, evtx filepaths.
 # Declare variable as string array in case only one value is assigned
-$ArchivedLogs = @(Get-EventLogArchive -FilePath $Path -FileExtension '.evtx' -OlderThan (Get-Date).AddDays(-$DaysOld) |sort Path)
+$ArchivedLogs = @(Get-EventLogArchive -FilePath $Path -FileExtension '.evtx' -OlderThan (Get-Date).AddDays(-$DaysOld) |Sort-Object Path)
 
 # Test for found files, exit script if none.
-if (($ArchivedLogs -eq $null) -or ($ArchivedLogs.Length -eq 0)) {
+if (($null -eq $ArchivedLogs) -or ($ArchivedLogs.Length -eq 0)) {
     Write-Error "No archived event logs found."
     exit
 }
