@@ -5,10 +5,10 @@
    Simplifies the conversion of arbitrary date/time strings to DateTime objects.  Really just a wrapper around the System.DateTime.TryParseExact method.
 .EXAMPLE
    Get-ParsedDate -InputString "Archive-EventLog-2018-10-03-11-03-50-877.evtx" -FormatString "yyyy-MM-dd-HH-mm-ss"
-.INPUT
+.INPUTS
    String object with a date.
    Custom date string that matches the date substring of the input string.
-.OUTPUT
+.OUTPUTS
    DateTime object
 .Notes
    Author: Swearbear
