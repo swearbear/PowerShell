@@ -1,4 +1,4 @@
-﻿function Filter-IsInSubnet
+﻿function Filter-IPInSubnet
 {
     param
     (
