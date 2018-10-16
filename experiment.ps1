@@ -7,14 +7,14 @@ $d = New-Object 'System.Collections.Generic.Dictionary[string,System.Collections
 
 .\Get-BulkWinEvent.ps1 -cn muhj-ms-lec01p -LogName wec-domain-controllers `
 -xpath "*[System[EventID=4624]]" -ArchiveNewerThan (get-date).adddays(-3) `
--SecondaryFilter {-Not $_.Properties[5].Value.EndsWith('$')} |
+-SecondaryFilter "*[EventData[Data[@Name='TargetUserName' and not(contains(text(), '$'))]]]" |
 select data_targetusername,data_ipaddress |
 % {$d[$_.Data_TargetUserName] += $_.Data_IPAddress;} |
 group data_targetusername
 
-Write-Host "Elapsed: $((Get-Date) - $st)"
+Write-Host "Total Elapsed: $((Get-Date) - $st)"
 
-$d
+
 
     <#
     |select Name,
