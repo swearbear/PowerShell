@@ -11,12 +11,13 @@
    Instead of returning true/false, the true evaluations return the passed in object(s).
 #>
 function Test-InSubnet {
+    [CmdletBinding(DefaultParameterSetName='Address')]
     param
     (
-        [Parameter(Mandatory=$true,ValueFromPipeline=$true,ParameterSetName='Address')]
+        [Parameter(Mandatory=$true,ValueFromPipeline=$true,Position=0,ParameterSetName='Address')]
         [ipaddress[]]$Address,
 
-        [Parameter(Mandatory=$true,ValueFromPipeline=$true,ParameterSetName='RRInstance')]
+        [Parameter(Mandatory=$true,ValueFromPipeline=$true,Position=0,ParameterSetName='RRInstance')]
         [ciminstance[]]$RRInstance,
 
         [Parameter(Mandatory=$true)]
@@ -33,7 +34,7 @@ function Test-InSubnet {
             # Convert ipv4 address string to UInt32 array
             $a = [uint32[]]$ip.Split('.')
             # Reverse byte order, add values, assign to UInt32
-            [uint32] $uip = ($a[0] -shl 24) + ($a[1] -shl 16) + ($a[2] -shl 8) + $a[3]
+            Write-Output ([uint32](($a[0] -shl 24) + ($a[1] -shl 16) + ($a[2] -shl 8) + $a[3]))
         }
 
         # Process all networks in the -Network parameter and apply their appropriate UInt32 values to an array
@@ -58,7 +59,7 @@ function Test-InSubnet {
                 Write-Error -ErrorAction Stop -Message "Invalid subnet notation."
             }
 
-            $Subnets += @{unetwork=$unetwork;mask=$umask}
+            $Subnets += @{unetwork=$unetwork;umask=$umask}
         }
     }
 
@@ -81,18 +82,15 @@ function Test-InSubnet {
             foreach ($sn in $Subnets)
             {
                 # compare ipv4 address to each of the networks in the -Network parameter
-                if ($sn.unetwork -eq ($sn.umask -band $uip))
+                if ($PassThru -and ($sn.unetwork -eq ($sn.umask -band $uip)))
                 {
-                    if ($PassThru)
-                    {
-                        Write-Output $_
-                    }
-                    else
-                    {
-                        Write-Output $true
-                    }
-
-                    break # Stop loop after the first match
+                    Write-Output $obj
+                    break # Stop evaluating subnets after the first match
+                }
+                elseif ($sn.unetwork -eq ($sn.umask -band $uip))
+                {
+                    Write-Output $true
+                    break # Stop evaluating subnets after the first match
                 }
             }
         }
