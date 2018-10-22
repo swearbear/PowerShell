@@ -311,16 +311,13 @@ function Resolve-EventLogPath
     # Log found and is configured for archiving ("AutoBackup")
     if ($log)
     {
+        $path = $log.LogFilePath
         if ($Archive -and ($log.LogMode -eq 'AutoBackup'))
         {
             # Use the LogFilePath property to know where archived files are written
             if ($Parent)
             {
                 $path = Split-Path $log.LogFilePath -Parent # Get the parent directory path
-            }
-            else
-            {
-                $path = $log.LogFilePath
             }
         }
         else
