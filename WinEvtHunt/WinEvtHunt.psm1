@@ -5,8 +5,11 @@ foreach ($script in (Get-ChildItem -Path "$PSScriptRoot\Functions" -Filter "*.ps
     . $script.FullName
 }
 
+
+function Get-LocalIPAddress
+{
 <#
-.Synopsis
+.SYNOPSIS
    TODO
 .DESCRIPTION
    TODO
@@ -15,8 +18,6 @@ foreach ($script in (Get-ChildItem -Path "$PSScriptRoot\Functions" -Filter "*.ps
 .EXAMPLE
    TODO
 #>
-function Get-LocalIPAddress
-{
     [CmdletBinding(DefaultParameterSetName='IP')]
     param
     (
@@ -52,8 +53,10 @@ function Get-LocalIPAddress
 }
 
 
+function Test-LocalHost
+{
 <#
-.Synopsis
+.SYNOPSIS
    Test if a value represents the local computer by hostname or IP address.
 .DESCRIPTION
    Tests if a given input value matches the local hostname or one of its IP addresses.
@@ -62,8 +65,6 @@ function Get-LocalIPAddress
 .EXAMPLE
    Test-LocalHost -ComputerName LondonDC01
 #>
-function Test-LocalHost
-{
     param
     (
         # This parameter is intentionally not mandatory because parameter binding errors cannot be silenced with -ErrorAction.
@@ -104,23 +105,29 @@ function Test-LocalHost
 }
 
 
-function Resolve-PathSafe {
-    param (
+function Resolve-PathSafe
+{
+    param
+    (
         [Parameter(Mandatory=$true,
                    ValueFromPipeline=$true)]
         [string[]] $Path
     )
       
-    process {
-        foreach ($obj in $Path) {
+    process
+    {
+        foreach ($obj in $Path)
+        {
             $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($obj)
         }
     }
 }
 
 
+function ConvertTo-NetworkPath
+{
 <#
-.Synopsis
+.SYNOPSIS
    TODO
 .DESCRIPTION
    TODO
@@ -129,8 +136,6 @@ function Resolve-PathSafe {
 .EXAMPLE
    TODO
 #>
-function ConvertTo-NetworkPath
-{
     [OutputType([string])]
     Param
     (
@@ -154,8 +159,10 @@ function ConvertTo-NetworkPath
 }
 
 
+function Copy-Hashtable
+{
 <#
-.Synopsis
+.SYNOPSIS
    Copy hashtable and filter for key names
 .DESCRIPTION
    Copy hashtable and filter for key names.  Optionally allow null values to be copied.  Optionally force null keys to be created for unmatched names.
@@ -164,8 +171,6 @@ function ConvertTo-NetworkPath
 .EXAMPLE
    Another example of how to use this cmdlet
 #>
-function Copy-Hashtable
-{
     param
     (
         [Parameter(Mandatory)]
@@ -257,8 +262,10 @@ function Copy-Hashtable
 }
 
 
+function Resolve-EventLogPath
+{
 <#
-.Synopsis
+.SYNOPSIS
    Resolve the file or directory path of a given event log from its Event Log or Channel name.
 .DESCRIPTION
    Resolve the file or directory path of a given event log from its Event Log or Channel name.  If remoting, optionally return as a network path.
@@ -275,8 +282,6 @@ function Copy-Hashtable
 
    Returns a network path to the directory containing the ForwardedEvents.evtx file on the remote host "EastWEC01"
 #>
-function Resolve-EventLogPath
-{
     param
     (
         [Parameter(Mandatory)]
@@ -339,8 +344,10 @@ function Resolve-EventLogPath
 }
 
 
+function Get-ParsedDate
+{
 <#
-.Synopsis
+.SYNOPSIS
    Simplifies the conversion of arbitrary date/time strings to DateTime objects.
 .DESCRIPTION
    Simplifies the conversion of arbitrary date/time strings to DateTime objects.  Really just a wrapper around the System.DateTime.TryParseExact method.
@@ -351,12 +358,10 @@ function Resolve-EventLogPath
    Custom date string that matches the date substring of the input string.
 .OUTPUTS
    DateTime object
-.Notes
+.NOTES
    Author: Swearbear
    Version: 1.0
 #>
-function Get-ParsedDate
-{
     param
     (
         [Parameter(Mandatory=$true)]
@@ -415,8 +420,10 @@ function Get-ParsedDate {
 #>
 
 
+function Test-InDateRange
+{
 <#
-.Synopsis
+.SYNOPSIS
    TODO
 .DESCRIPTION
    TODO
@@ -425,8 +432,6 @@ function Get-ParsedDate {
 .EXAMPLE
    TODO
 #>
-function Test-InDateRange
-{
     param
     (
         [Parameter(Mandatory,ParameterSetName='Min',Position=0)]
@@ -465,8 +470,10 @@ function Test-InDateRange
 }
 
 
+function Get-EventLogArchive
+{
 <#
-.Synopsis
+.SYNOPSIS
    Get the file paths of archived event logs matching a given date criteria.
 .DESCRIPTION
    Get the file paths of archived event logs matching a given date criteria
@@ -489,8 +496,6 @@ function Test-InDateRange
    Author: Swearbear
    Version: 1.0
 #>
-function Get-EventLogArchive
-{
     [cmdletbinding(DefaultParameterSetName='LogName')]
     param
     (
@@ -586,8 +591,10 @@ function Get-EventLogArchive
 }
 
 
+function Get-WevtutilEvent
+{
 <#
-.Synopsis
+.SYNOPSIS
    Get and search Windows Events using WEVTUTIL.EXE, which is much faster than Get-WinEvent.
 .DESCRIPTION
    Get and search Windows Events using WEVTUTIL.EXE, which is much faster than Get-WinEvent.
@@ -606,8 +613,6 @@ function Get-EventLogArchive
    wevtutil qe System /f:Xml > SystemEventsXml.txt
    Get-Content SystemEventsXml.txt | ConvertFrom-Wevtutil
 #>
-function Get-WevtutilEvent
-{
     param
     (
         [Parameter(Mandatory=$true,Position=0)]
@@ -793,8 +798,10 @@ function Get-WevtutilEvent
 }
 
 
+function Get-BulkWinEvent
+{
 <#
-.Synopsis
+.SYNOPSIS
    Simplify searching of Windows event logs plus archived .evtx files.
 .DESCRIPTION
    Simplify searching of Windows event logs plus archived .evtx files.  Attempts to speed up bulk searches from multiple remote hosts aReturns events as serialized objects.
@@ -812,8 +819,6 @@ function Get-WevtutilEvent
    Version: 2.0
    Release: 17 Oct 18
 #>
-function Get-BulkWinEvent
-{
     [cmdletbinding()]
     param
     (
@@ -930,7 +935,6 @@ function Get-WinEventData
 .FUNCTIONALITY
     Computers
 #>
-
     [cmdletbinding()]
     param(
         [Parameter(Mandatory=$true, 
