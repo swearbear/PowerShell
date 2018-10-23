@@ -619,16 +619,19 @@ function Get-WevtutilEvent
 #>
     param
     (
-        [Parameter(Mandatory=$true,Position=0)]
+        [Parameter(Mandatory=$true)]
         [string] $LogName,
 
-        [Parameter(Position=1)]
+        [Parameter()]
         [string] $FilterXPath,
 
-        [Parameter(Position=2)]
+        [Parameter()]
         [string] $FilterXPath2,
 
-        [Parameter(Position=3)]
+        [Alias('Cn')]
+        [string[]] $ComputerName,
+
+        [Parameter()]
         [int] $MaxEvents
     )
 
@@ -785,30 +788,38 @@ function Get-WevtutilEvent
         $FilterXPath2 = "/Event"
     }
 
-    # Initialize event counter to compare against the -MaxEvents parameter
-    $count = 0
-    #Wait-Debugger
-    try
+    # if running against localhost
+    if (Test-LocalHost -ComputerName $ComputerName -NullOrEmptyAction $true)
     {
-        wevtutil.exe $argslist | ConvertFrom-Wevtutil -FilterXPath $FilterXPath2 | ForEach-Object {
-            if ($count -lt $MaxEvents)
-            {
-                $_.ContainerLog = $ContainerLog  # set the ContainerLog property to the file name
-                Write-Output $_
-                $count ++  # increment event counter
+        # Initialize event counter to compare against the -MaxEvents parameter
+        $count = 0
+        #Wait-Debugger
+        try
+        {
+            wevtutil.exe $argslist | ConvertFrom-Wevtutil -FilterXPath $FilterXPath2 | ForEach-Object {
+                if ($count -lt $MaxEvents)
+                {
+                    $_.ContainerLog = $ContainerLog  # set the ContainerLog property to the file name
+                    Write-Output $_
+                    $count ++  # increment event counter
+                }
+                else
+                {
+                    continue
+                }
             }
-            else
+        }
+        catch [System.Management.Automation.ContinueException]
+        {
+            if ($_.FullyQualifiedErrorId -ne "NativeCommandFailed")
             {
-                continue
+                $PSCmdlet.ThrowTerminatingError($_)
             }
         }
     }
-    catch [System.Management.Automation.ContinueException]
+    else
     {
-        if ($_.FullyQualifiedErrorId -ne "NativeCommandFailed")
-        {
-            $PSCmdlet.ThrowTerminatingError($_)
-        }
+        
     }
 }
 
