@@ -96,7 +96,7 @@ function Test-LocalHost
     else
     {
         $msg = "Evaluation aborted.  The -ComputerName parameter was empty."
-        Write-Error -Message $msg
+        Write-Warning -Message $msg
         if ($PSBoundParameters.ContainsKey('NullOrEmptyAction'))
         {
             Write-Output $NullOrEmptyAction
@@ -307,18 +307,20 @@ function Resolve-EventLogPath
     $params = Copy-Hashtable -InputObject $PSBoundParameters -Key @{ListLog={$_.LogName}},ComputerName
 
     $log = Get-WinEvent @params
-
+    #Wait-Debugger
     # Log found and is configured for archiving ("AutoBackup")
     if ($log)
     {
-        $path = $log.LogFilePath
+        # Replace any environment variables with the PowerShell $env: equivalent. Then resolve it.
+        $path = $ExecutionContext.InvokeCommand.ExpandString(($log.LogFilePath -replace '%(.*)%', '$env:$1'))
         if ($Archive -and ($log.LogMode -eq 'AutoBackup'))
         {
             # Use the LogFilePath property to know where archived files are written
             if ($Parent)
             {
-                $path = Split-Path $log.LogFilePath -Parent # Get the parent directory path
+                $path = Split-Path $path -Parent # Get the parent directory path
             }
+
         }
         else
         {
@@ -441,13 +443,13 @@ function Test-InDateRange
         [Parameter(Mandatory,ParameterSetName='Min',Position=1)]
         [Parameter(Mandatory,ParameterSetName='Min+Max',Position=1)]
         [Parameter(Mandatory,ParameterSetName='Min+TS',Position=1)]
-        [Alias('Min','LowerBound','OlderThan')]
+        [Alias('Min','LowerBound','NewerThan')]
         [datetime] $Start,
 
         [Parameter(Mandatory,ParameterSetName='Max',Position=2)]
         [Parameter(Mandatory,ParameterSetName='Min+Max',Position=2)]
         [Parameter(Mandatory,ParameterSetName='Max+TS',Position=2)]
-        [Alias('Max','UpperBound','NewerThan')]
+        [Alias('Max','UpperBound','OlderThan')]
         [datetime] $End,
 
         [Parameter(Mandatory,ParameterSetName='Min+TS')]
@@ -516,11 +518,13 @@ function Get-EventLogArchive
 
         [Parameter(ParameterSetName='Path')]
         [Parameter(ParameterSetName='LogName')]
-        [datetime] $NewerThan,
+        [Alias('NewerThan')]
+        [datetime] $Start,
 
         [Parameter(ParameterSetName='Path')]
         [Parameter(ParameterSetName='LogName')]
-        [datetime] $OlderThan
+        [Alias('OlderThan')]
+        [datetime] $End
     )
 
     if (($ComputerName -eq $env:COMPUTERNAME) -or (Test-LocalHost -ComputerName $ComputerName -NullOrEmptyAction $true))
@@ -532,7 +536,7 @@ function Get-EventLogArchive
     if ($PSCmdlet.ParameterSetName -eq 'LogName')
     {
         # Create hashtable of parameters for Get-WinEvent to look for a matching event log
-        $params = Copy-Hashtable -InputObject $PSBoundParameters -Key LogName,ComputerName,Archive
+        $params = Copy-Hashtable -InputObject $PSBoundParameters -Key LogName,ComputerName,@{Archive={$true}},@{Parent={$true}} -Force
 
         # Look for matching event log
         $Path = Resolve-EventLogPath @params
@@ -560,30 +564,33 @@ function Get-EventLogArchive
     }
 
     # Create hashtable of bound parameters that match
-    $daterange = Copy-Hashtable -InputObject $PSBoundParameters -Key NewerThan,OlderThan
+    $daterange = Copy-Hashtable -InputObject $PSBoundParameters -Key Start,End
     
     # Try to parse the filename and create a datetime object
     foreach ($fn in $files.FullName)
     {
-        try
+        if ($fn -match $Pattern)
         {
-            $date = Get-ParsedDate -InputString $Pattern.Match($fn).Value -FormatString "yyyy-MM-dd-HH-mm-ss"
-        }
-        catch
-        {
-            Write-Error $_
-            continue
-        }
-
-        if ($range.Count -gt 0)
-        {
-            if (-Not (Test-InDateRange -InputObject $date @daterange))
+            try
             {
+                $date = Get-ParsedDate -InputString $Pattern.Match($fn).Value -FormatString "yyyy-MM-dd-HH-mm-ss"
+            }
+            catch
+            {
+                Write-Error $_
                 continue
             }
-        }
 
-        [pscustomobject]([ordered]@{Date=$date;Path=$fn})
+            if ($daterange.Count -gt 0)
+            {
+                if (-Not (Test-InDateRange -InputObject $date @daterange))
+                {
+                    continue
+                }
+            }
+
+            [pscustomobject]([ordered]@{Date=$date;Path=$fn})
+        }
     }
 }
 
@@ -756,10 +763,11 @@ function Get-WevtutilEvent
         $argslist += "/q:$FilterXPath"
     }
 
-    if ($MaxEvents)
-    {
-        $argslist += "/c:$MaxEvents"
-    }
+    # The count parameter "/c:" of wevtutil.exe can't be used because the following filter may block some of the objects
+    #if ($MaxEvents)
+    #{
+    #    $argslist += "/c:$MaxEvents"
+    #}
 
     if (Test-Path $LogName)
     {
@@ -777,12 +785,22 @@ function Get-WevtutilEvent
         $FilterXPath2 = "/Event"
     }
 
+    # Initialize event counter to compare against the -MaxEvents parameter
+    $count = 0
     #Wait-Debugger
     try
     {
         wevtutil.exe $argslist | ConvertFrom-Wevtutil -FilterXPath $FilterXPath2 | ForEach-Object {
-            $_.ContainerLog = $ContainerLog
-            Write-Output $_
+            if ($count -lt $MaxEvents)
+            {
+                $_.ContainerLog = $ContainerLog  # set the ContainerLog property to the file name
+                Write-Output $_
+                $count ++  # increment event counter
+            }
+            else
+            {
+                continue
+            }
         }
     }
     catch [System.Management.Automation.ContinueException]
@@ -803,11 +821,11 @@ function Get-BulkWinEvent
 .DESCRIPTION
    Simplify searching of Windows event logs plus archived .evtx files.  Attempts to speed up bulk searches from multiple remote hosts aReturns events as serialized objects.
 .EXAMPLE
-   Get-BulkWinEvent.ps1 -ComputerName DC1,DC2,DC3 -LogName Security -XPath "*[System[EventID=4624]]" -ArchiveNewerThan (Get-Date).AddDays(-7)
+   Get-BulkWinEvent.ps1 -ComputerName DC1,DC2,DC3 -LogName Security -FilterXPath "*[System[EventID=4624]]" -ArchiveNewerThan (Get-Date).AddDays(-7)
 
    # Returns events matching event id 4624 from the Security log and all archived .evtx files created within the last 7 days.
 .EXAMPLE
-   Get-BulkWinEvent.ps1 -ComputerName WEC1 -LogName ForwardedEvents -XPath "*[System[EventID=4625]]" -SecondaryFilter "*[EventData[Data[@Name='TargetUserName' and not(contains(text(), '$'))]]]"
+   Get-BulkWinEvent.ps1 -ComputerName WEC1 -LogName ForwardedEvents -FilterXPath "*[System[EventID=4625]]" -FilterXPath2 "*[EventData[Data[@Name='TargetUserName' and not(contains(text(), '$'))]]]"
 
    # Returns failed logon events that were forwarded to a Windows Event Collector.  Uses a second xpath filter to exclude computer accounts (ends with '$') before returning results.
    # The second XPath filter supports XPath 2.0, where as the first XPath parameter supports only a subset of XPath 1.0.
@@ -837,9 +855,21 @@ function Get-BulkWinEvent
         [int] $MaxEvents
     )
     
+    $RequiredModuleFunctions = @('Get-WevtutilEvent', 'Get-EventLogArchive', 'Copy-Hashtable', 'Resolve-EventLogPath', 'Test-LocalHost', 'ConvertTo-NetworkPath', 'Resolve-PathSafe', 'Get-ParsedDate', 'Test-InDateRange')
+    $ExportedFunctions = Get-Module WinEvtHunt |select -exp ExportedFunctions
+    $func = @{}
+    if ($RequiredModuleFunctions)
+    {
+        foreach ($rmf in $RequiredModuleFunctions)
+        {
+            $func[$rmf] = $ExportedFunctions[$rmf].Definition
+        }
+    }
+    $IsVerbose = $PSCmdlet.MyInvocation.BoundParameters.ContainsKey('Verbose')
+
+    #Wait-Debugger
     $ScriptBlock = {
 
-        $st = Get-Date
         # Set up variables for execution local or remote
         try
         {
@@ -848,42 +878,74 @@ function Get-BulkWinEvent
             if ($using:MaxEvents) {$MaxEvents = $using:MaxEvents}
             if ($using:FilterXPath2) {$FilterXPath2 = $using:FilterXPath2}
             if ($using:ArchiveNewerThan) {$ArchiveNewerThan = $using:ArchiveNewerThan}
+            if ($using:ComputerName)
+            {
+                $remote = $true
+                if ($using:RequiredModuleFunctions -and $using:func)
+                {
+                    foreach ($f in ($using:func).GetEnumerator())
+                    {
+                        New-Item -Path Function:\ -Name $f.Name -Value $f.Value > $null
+                    }
+                }
+            }
+
         }
         catch [System.Management.Automation.RuntimeException]
         {
             # Catch the errors from evaluating $using variable when not remoting
         }
 
+        if ($using:IsVerbose) { $VerbosePreference = "Continue" }
         #$DebugPreference = "Continue"
+        #Wait-Debugger
         $count = 0
-        
-        Write-Verbose ("Searching {0} log..." -f $LogName) -ForegroundColor Yellow
+        # Start of search
+        $st = Get-Date
+        Write-Verbose ("Searching {0} log..." -f $LogName) 4>&1 #-ForegroundColor Yellow
         Get-WevtutilEvent $LogName $FilterXPath $FilterXPath2 $MaxEvents |ForEach-Object {$count++; $_}
-        Write-Verbose "Elapsed: $((Get-Date) - $st)"
+        Write-Verbose "Elapsed: $((Get-Date) - $st)" 4>&1
 
-        if ($MaxEvents -le $count)
+        # if max event count has not been met
+        if ($count -lt $MaxEvents)
         {
-            # if max event count has been met
-            return
-        }
+            if ($ArchiveNewerThan)
+            {            
+                $i = 0
+                $archives = Get-EventLogArchive -LogName $LogName -NewerThan $ArchiveNewerThan
 
-        if ($ArchiveNewerThan)
-        {
-            $i = 0
-            $archives = Get-EventLogArchive -LogName $LogName -NewerThan $ArchiveNewerThan
-
-            foreach ($log in $archives)
-            {
-                $i++
-                Write-Host "Searching archived log ($i/$($archives.count))... $log" -ForegroundColor Yellow
-                Get-WevtutilEvent $LogName $FilterXPath $FilterXPath2 ($MaxEvents - $count) |ForEach-Object {$count++; $_}
-                Write-Host "Elapsed: $((Get-Date) - $st)"
+                foreach ($log in $archives)
+                {
+                    if ($count -lt $MaxEvents)
+                    {
+                        $i++
+                        Write-Verbose "Searching archived log ($i/$($archives.count))... $($log.Path)" 4>&1 #-ForegroundColor Yellow
+                        Get-WevtutilEvent $log.Path $FilterXPath $FilterXPath2 ($MaxEvents - $count) |ForEach-Object {$count++; $_}
+                        Write-Verbose "Elapsed: $((Get-Date) - $st)" 4>&1
+                    }
+                    else
+                    {
+                        break  # break foreach ($log in $archives)
+                    }
+                }
             }
         }
     }
 
     # Execute the scriptblock locally or remotely per bound parameters
-    if ($ComputerName) { Invoke-Command -ComputerName $ComputerName -ScriptBlock $ScriptBlock }
+    if ($ComputerName)
+    {
+        Invoke-Command -ComputerName $ComputerName -ScriptBlock $ScriptBlock | ForEach-Object {
+            if ($_ -is [System.Management.Automation.VerboseRecord])
+            {
+                Write-Verbose $_.Message
+            }
+            else
+            {
+                $_
+            }
+        }
+    }
     else { Invoke-Command -ScriptBlock $ScriptBlock }
 }
 
