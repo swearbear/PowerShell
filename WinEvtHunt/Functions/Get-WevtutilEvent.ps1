@@ -23,6 +23,7 @@
     param
     (
         [Parameter(Mandatory=$true)]
+        [Alias('Path')]
         [string] $LogName,
 
         [Parameter()]
