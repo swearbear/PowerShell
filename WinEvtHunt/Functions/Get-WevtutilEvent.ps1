@@ -36,7 +36,17 @@
         [string[]] $ComputerName,
 
         [Parameter()]
-        [int] $MaxEvents
+        [int] $MaxEvents,
+
+        [datetime] $Start,
+
+        [datetime] $End,
+
+        [switch] $AsJob,
+
+        [switch] $Archive,
+
+        [string] $ArchiveHint
     )
 
     $requiredfunctions = @('WinEvtHunt\Test-LocalHost')
