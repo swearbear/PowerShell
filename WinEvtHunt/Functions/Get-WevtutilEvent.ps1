@@ -94,6 +94,7 @@
         }
         process
         {
+            
             # ignore any strings that don't start with the "Event" xml node
             if ($_ -match $eventxmlns)
             {
@@ -205,22 +206,130 @@
     if (($ComputerName.Count -eq 0) -or (Test-LocalHost -ComputerName $ComputerName[0] -NullOrEmptyAction $true))
     {
         # Initialize event counter to compare against the -MaxEvents parameter
-        $count = 0
+        $Counter = [hashtable]::Synchronized(@{})
+        $Counter.value = 0
+        $Counter.Flag = $false
+        $Counter.Host = $host
+        #$count = 0
         #Wait-Debugger
         try
         {
-            wevtutil.exe $argslist | ConvertFrom-Wevtutil -FilterXPath $FilterXPath2 | ForEach-Object {
-                if ($count -lt $MaxEvents)
+            wevtutil.exe $argslist | Split-Pipeline -Variable FilterXPath2,ContainerLog,Counter,MaxEvents -Begin {
+                # Remove any carrots around the RootElement parameter
+                if ($RootElement)
                 {
-                    $_.ContainerLog = $ContainerLog  # set the ContainerLog property to the file name
-                    Write-Output $_
-                    $count ++  # increment event counter
+                    $RootElement = $RootElement.Trim() -replace '<|>', ''
                 }
-                else
-                {
-                    continue
+
+                # Matches the default first element of a Windows Event xml string
+                $eventxmlns = "^<Event\sxmlns='http://schemas.microsoft.com/win/2004/08/events/event'>"
+
+                # Identifies the first processed object as such
+                $firstobj = $true
+            } -Script {process{
+            
+                    # ignore any strings that don't start with the "Event" xml node
+                    if ($_ -match $eventxmlns)
+                    {
+                        if (($firstobj) -and ($RootElement -eq "Event"))
+                        {
+                            $msg = "The '-RootElement' parameter should only be used to identify an element encapsulating ",
+                                    "the default `"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'>`", ",
+                                    "such as when using the '/e:' parameter of wevtutil.exe to specify the root element tags." -join ''
+                            Write-Warning $msg
+                        }
+
+                        # create a simple, searchable xml string
+                        # 1. Remove the xml namespace attribute to simplify searching
+                        # 2. Remove the RenderingInfo element because its generally unnecessary (I may want to add this as an option)
+                        # 3. Remove double closing 'Event' tags if someone used '/e:Event' with wevtutil.exe and replace with the correct tag
+                        # ...Add correct closing tag if it doesn't precede the end of string.
+                        $eventxmlstr = $_ -replace $eventxmlns, '<Event>' -replace '\<RenderingInfo\s.*', '' -replace '(</Event></Event>$)|(?<!</Event>)$', '</Event>'
+
+                        if (-Not $FilterXPath)
+                        {
+                            $FilterXPath = "/Event"
+                        }
+            
+                        $node = ([xml]$eventxmlstr).SelectSingleNode($FilterXPath)
+
+                        if ($node)
+                        {
+                            # populate custom object properties
+                            $ht = [ordered]@{
+                                PSTypeName = $node.System.Provider.Name + "." + $node.System.EventID
+                                TimeCreated = $node.System.TimeCreated.SystemTime
+                                EventID = $node.System.EventID
+                                MachineName = $node.System.Computer
+                                LogName = $node.System.Channel
+                                ContainerLog = $ContainerLog
+                            }
+
+                            # add dynamic properties from the "EventData" or "UserData" child elements
+                            $i=1
+                            $data = if ($node.EventData.Data) {$node.EventData.Data} else {$node.UserData.Data}
+                            foreach ($dn in $data)
+                            {
+                                if ($dn.Name)
+                                {
+                                    $ht["Data_$($dn.Name)"] = $dn.'#text'
+                                }
+                                else
+                                {
+                                    # use two-digit numbers in property names when the "Data" node doesn't have a "Name" attribute
+                                    $ht["Data_{0:D2}" -f $i] = $dn.'#text'
+                                    $i++
+                                }
+                            }
+                            
+                            if ($Counter -lt $MaxEvents)
+                            {
+                                [pscustomobject]$ht
+                                $Counter++
+                            }
+                            else
+                            {
+                                return
+                            }
+                        }
+                    }
+                    elseif ($firstobj)
+                    {
+                        if ($_ -match '^Event\[\d+\]:$')
+                        {
+                            $msg = "ConvertFrom-Wevtutil doesn't support text-formatted wevtutil.exe output ('/f:Text').  ",
+                                    "The only supported formats are '/f:Xml' or '/f:RenderedXml'." -join ''
+                            Write-Error -ErrorAction Stop -Message $msg
+                        }
+                        elseif (-Not $RootElement)
+                        {
+                            $msg = "Expected first element string to start with `"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'>`".  ",
+                                    "If the input has another root element, use the '-RootElement' parameter to identify it." -join ''
+                            Write-Error -ErrorAction Stop -Message $msg
+                        }
+                        elseif ($_ -inotmatch "<$RootElement>")
+                        {
+                            $msg = "Expected first element string to start with `"<$RootElement>`".  ",
+                                    "Verify that the root element name matches the '-RootElement' parameter." -join ''
+                            Write-Error -ErrorAction Stop -Message $msg
+                        }
+                    }
+                    $firstobj = $false
                 }
             }
+            
+            #wevtutil.exe $argslist | ConvertFrom-Wevtutil -FilterXPath $FilterXPath2 | ForEach-Object {
+            #    if ($count -lt $MaxEvents)
+            #    {
+            #        $_.ContainerLog = $ContainerLog  # set the ContainerLog property to the file name
+            #        Write-Output $_
+            #        $count ++  # increment event counter
+            #    }
+            #    else
+            #    {
+            #        continue
+            #    }
+            #}
         }
         catch [System.Management.Automation.ContinueException]
         {
@@ -234,6 +343,7 @@
     {
         try
         {
+            #$fds = New-FunctionDefinitionSet -FunctionName $requiredfunctions
             $functiondefinitions = @{}
             foreach ($command in $requiredfunctions)
             {
