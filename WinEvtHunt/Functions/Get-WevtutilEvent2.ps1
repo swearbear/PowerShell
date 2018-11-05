@@ -162,7 +162,7 @@
                         Write-Error -ErrorAction Stop -Message $msg
                     }
                 }
-                $hash.firstobj = $false
+                #$hash.firstobj = $false
             }
 
 
@@ -179,27 +179,38 @@
         {
             foreach ($obj in $InputObject)
             {
-                if ($hash.objcounter -ge $hash.maxevents)
+                if ($obj.StartsWith('<'))
                 {
-                    return
-                }
-                #Write-Verbose -Message "CONVERTFROM-WEVTUTIL: PROCESS { InputObject = $obj }"
-                Write-Verbose -Message "CONVERTFROM-WEVTUTIL: PROCESS {}"
-                #Create the powershell instance and supply the scriptblock with the other parameters 
-                $ps = [powershell]::Create().AddScript($hash.scriptblock).AddArgument($obj)
+                    if ($hash.objcounter -ge $hash.maxevents)
+                    {
+                        break
+                    }
+                    #Write-Verbose -Message "CONVERTFROM-WEVTUTIL: PROCESS { InputObject = $obj }"
+                    Write-Verbose -Message "CONVERTFROM-WEVTUTIL: PROCESS {}"
+                    #Write-Host "test" -fore Yellow
+                    #sleep -Milliseconds 10
+                    #Create the powershell instance and supply the scriptblock with the other parameters 
+                    $ps = [powershell]::Create().AddScript($hash.scriptblock).AddArgument($obj)
            
-                #Add the runspace into the powershell instance
-                $ps.RunspacePool = $hash.runspacepool
+                    #Add the runspace into the powershell instance
+                    $ps.RunspacePool = $hash.runspacepool
     
-                #Save the handle output when calling BeginInvoke() that will be used later to end the runspace
-                $temp = @{
-                    PowerShell = $ps
-                    Result = $ps.BeginInvoke()
-                }
+                    #Save the handle output when calling BeginInvoke() that will be used later to end the runspace
+                    $temp = @{
+                        PowerShell = $ps
+                        Result = $ps.BeginInvoke()
+                    }
 
-                $null = $hash.runspaces.Add($temp)
-                # Register event subscription in the host runspace
-                $null = $hash.Host.Runspace.Events.SubscribeEvent($ps, "InvocationStateChanged", $null, $temp, $null, $false, $false)
+                    $null = $hash.runspaces.Add($temp)
+                    # Register event subscription in the host runspace
+                    $null = $hash.Host.Runspace.Events.SubscribeEvent($ps, "InvocationStateChanged", $null, $temp, $null, $false, $false)
+
+                    $hash.firstobj = $false
+                }
+            }
+            if ($hash.objcounter -ge $hash.maxevents)
+            {
+                return 1
             }
         }
     }
@@ -212,7 +223,7 @@
         objcounter = 0
         maxevents = $MaxEvents
         host = $Host
-        runspaces = New-Object System.Collections.ArrayList
+        runspaces = [System.Collections.ArrayList]::Synchronized((New-Object System.Collections.ArrayList))
         runspacepool = $null
         pipecompleted = $false
         scriptblock = $null
@@ -264,7 +275,12 @@
         $sb = {
             try
             {
-                wevtutil.exe $hash.wevtutilargslist | ConvertFrom-Wevtutil -FilterXPath $hash.filterxpath2 -hash ([ref]$hash) -Verbose
+                wevtutil.exe $hash.wevtutilargslist | ConvertFrom-Wevtutil -hash ([ref]$hash) -FilterXPath $hash.filterxpath2 | ForEach-Object {
+                    if ($_ -eq 1)
+                    {
+                        continue
+                    }
+                }
             }
             catch [System.Management.Automation.ContinueException]
             {
@@ -313,11 +329,18 @@
             {
                 foreach ($e in $events)
                 {
-                    $null = $e.MessageData.powershell.EndInvoke($e.MessageData.result)
                     $e.MessageData.powershell.Dispose()
-                    $hash.runspaces.Remove($e.MessageData)
-                    Remove-Event -EventIdentifier $e.EventIdentifier
                 }
+                $events | Remove-Event
+                $hash.runspaces.Clear()
+                #$hash.runspaces = $null
+                #foreach ($e in $events)
+                #{
+                #    $null = $e.MessageData.powershell.EndInvoke($e.MessageData.result)
+                #    $e.MessageData.powershell.Dispose()
+                #    $hash.runspaces.Remove($e.MessageData)
+                #    Remove-Event -EventIdentifier $e.EventIdentifier
+                #}
             }
         }
 

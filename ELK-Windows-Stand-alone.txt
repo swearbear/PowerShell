@@ -1,0 +1,217 @@
+ELK 6.4.2 - Windows Setup
+
+*All commands shown in this document are executed from a PowerShell console. Most will require an elevated PowerShell console.
+
+###############################################################################
+####                               DOWNLOADS                                ###
+###############################################################################
+
+
+=== REQUIRED ===
+
+Elastic - https://www.elastic.co/downloads
+------------------------------------------
+- elasticsearch-6.4.2.zip  (Do NOT download the '.MSI' installer)
+- kibana-6.4.2-windows-x86_64.zip
+- logstash-6.4.2.zip
+- winlogbeat-6.4.2-windows-x86_64.zip
+
+Java Server JRE (8) - https://www.oracle.com/technetwork/java/javase/downloads/index.html
+-----------------------------------------------------------------------------------------
+*Note that logstash doesn't support java versions higher than 8 yet.
+- server-jre-8u191-windows-x64.tar.gz
+
+7-Zip - https://www.7-zip.org/download.html
+-------------------------------------------
+*Exact version not important as long as its within the last two years
+*What we want is the standalone console version of 7zip. But that download comes as a '.7z' file type... so you'll need to make sure you have another copy of 7zip so you can extract it.
+Once extracted, grab the file ".\7z1805-extra\x64\7za.exe".
+- 7za.exe
+
+WinSW v2.1.2 - https://github.com/kohsuke/winsw/releases
+--------------------------------------------------------
+*Documentation can be referrenced here (https://github.com/kohsuke/winsw)
+- WinSW.NET4.exe
+- sample-minimal.xml
+
+
+=== Optional ===
+
+Notepad++ - https://notepad-plus-plus.org
+-----------------------------------------
+*This is marked as optional, but it is recommended for editing the configuration files of ELK.
+*If you intend to use NPP on a server that you don't manage, it's recommended to use the standalone version (no install) to minimize impact on the server's configuration and to prevent NPP from being resolved via system-wide %PATH% variable (just in case an exploit is found). To that end, grab the minimalist package for further vulnerability mitigation (e.g. npp.7.5.9.bin.minimalist.x64.7z).
+
+
+
+###############################################################################
+####                              Setup                                     ###
+###############################################################################
+
+1. Create a directory named "Elastic" and place all of the downloaded files in it.
+
+2. Unblock the downloaded files.
+>> Get-ChildItem .\Elastic\ | Unblock-File
+
+3. Move the "Elastic" directory (and contents) to "C:\Program Files\" (on the server you mean to install ELK).
+
+4. Change directories to "C:\Program Files\Elastic\".
+
+5. Extract Server JRE.
+>> cmd /c '.\7za.exe x .\server-jre-8u191-windows-x64.tar.gz -so | .\7za.exe x -aoa -si -ttar'
+*The first part of the pipeline extracts the gzip and writes the data to stdout, the second part reads stdin and extracts the tar archive. Its important to use cmd.exe to wrap this command because the PowerShell pipeline will corrupt binary streams -- it likes to wrap everything in an object. Here's hoping this is fixed in PowerShell 7...
+
+4. Extract Kibana. I encountered a problem with McAfee blocking the extraction of some of the files. But there is a workaround -- temporarily rename the files in the archive and change them back after extraction (*.html.js -> *.htmljs)
+>> $htmljs = .\7za.exe l .\kibana-6.4.2-windows-x86_64.zip | ? {$_ -match '\.html\.js$'} | % {$_.split() | select -last 1}
+>> $htmljs | % {.\7za.exe rn .\kibana-6.4.2-windows-x86_64.zip $_ $($_ -replace '\.html\.js$','.htmljs')}
+*This will take a few minutes.
+
+4. Extract Elasticsearch, Logstash, Kibana, and Winlogbeat
+>> "elasticsearch-6.4.2.zip","logstash-6.4.2.zip","kibana-6.4.2-windows-x86_64.zip","winlogbeat-6.4.2-windows-x86_64.zip" | % {.\7za.exe x $_ -aoa}
+*This will take a few minutes.
+
+5. Correct the renamed files in the Kibana directory.
+>> gci .\kibana-6.4.2-windows-x86_64 -filter *.htmljs -file -recurse |ForEach-Object {Rename-Item $_.FullName ($_.FullName -replace '\.htmljs$','.html.js')}
+
+6. Make Elasticsearch aware of Java path.
+6.a. Change to 'Elastic\elasticsearch-6.4.2\bin\' and backup the 'elasticsearch-env.bat' file.
+6.b. Edit 'elasticsearch-env.bat'.
+6.b.i. Insert line to set the JAVA_HOME variable to the path where java was extracted. Add the line "set JAVA_HOME=C:\Program Files\Elastic\jdk1.8.0_191" to the top of the file. You can do this manually or just copy/paste the following commands.
+>> $c = Get-Content elasticsearch-env.bat -Encoding Ascii
+>> $c = &{$c[0]; "set JAVA_HOME=C:\Program Files\Elastic\jdk1.8.0_191"; $c[1..$c.GetUpperBound(0)]}
+>> Set-Content -Value $c -Path elasticsearch-env.bat -Encoding Ascii
+
+7. Make Logstash aware of Java path.
+7.a. Change to 'Elastic\logstash-6.4.2\bin\' and backup the 'setup.bat' file.
+7.b. Edit 'setup.bat'
+7.b.i. Insert line to set the JAVA_HOME variable to the path where java was extracted. Add the line "set JAVA_HOME=C:\Program Files\Elastic\jdk1.8.0_191" to the top of the file. You can do this manually or just copy/paste the following commands.
+>> $c = Get-Content setup.bat -Encoding Ascii
+>> $c = &{$c[0]; "set JAVA_HOME=C:\Program Files\Elastic\jdk1.8.0_191"; $c[1..$c.GetUpperBound(0)]}
+>> Set-Content -Value $c -Path setup.bat -Encoding Ascii
+
+8. Fix typo in Logstash (6.4.2) bat file.
+8.a. Backup the 'logstash.bat' file.
+8.b. Remove double quotes around the %CLASSPATH% variable.
+>> $c = (Get-Content logstash.bat -Encoding Ascii -Raw) -replace '\"%CLASSPATH%\"', "%CLASSPATH%"
+>> Set-Content -Value $c -Path logstash.bat -Encoding Ascii
+
+
+######################################
+Configure
+
+* Elasticsearch
+	- The primary configuation file is 'Elastic\elasticsearch-6.4.2\config\elasticsearch.yml'.
+	- No changes are necessary if it will only be listening on localhost.
+	- Recommend modifying where ES stores its data to be on separate physical disk(s) from the system drive.
+		-- Uncomment and modify the line, "#path.data"
+* Kibana
+	- The config file is 'Elastic\kibana-6.4.2-windows-x86_64\config\kibana.yml'.
+	- Uncomment and modify the line, "#server.host".  Add the IP address of the server (assuming you want to connect to Kibana from another host).
+* Logstash
+	- Copy the file 'Elastic\logstash-6.4.2\config\logstash-sample.conf', name it 'logstash.conf' and place it in the 'bin' directory (the file name doesn't matter)
+	- Edit the file by adding a pipline id (this is to distiguish it if additional pipelines are added).
+		-- In the "beats configuration element ('input { beats {} }') add the line 'id => "winlogbeat_01"'.
+* Winlogbeat
+	- The config file is 'Elastic\winlogbeat-6.4.2-windows-x86_64\winlogbeat.yml'
+	- Comment any lines in the Elasticsearch output section.
+	- Uncomment "#output.logstash:"
+		-- Uncomment the logstash output item "#hosts:" (leave it as default)
+
+
+########################################
+Testing
+
+* Open four elevated powershell consoles.
+	- In one console, change directories to 'Elastic\elasticsearch-6.4.2\bin'
+		-- Execute '.\elasticsearch.bat'
+		-- Give it a minute or two
+		-- If there were errors or it the batch process exited, then recheck previous setup steps.
+		-- Test that elasticsearch is responding to http requests. 'Invoke-RestMethod http://localhost:9200'
+	- In another console, change directories to 'Elastic\kibana-6.4.2-windows-x86_64\bin'
+		-- Execute '.\kibana.bat'
+		-- Give it a minute or two
+		-- If there were errors or it the batch process exited, then recheck previous setup steps.
+		-- Test that kibana is properly hosted. Open a browser and go to http://localhost:5601
+	- In another console, change directories to 'Elastic\logstash-6.4.2\bin'
+		-- Execute '.\logstash.bin -f logstash.conf'
+		-- Give it a minute or two (this should take longer than the others).
+		-- If there were errors or it the batch process exited, then recheck previous setup steps.
+	- In another console, change directories to 'Elastic\winlogbeat-6.4.2-windows-x86_64'
+		-- Load Winlogbeat template into Elasticsearch:
+		> .\winlogbeat.exe setup --template -E output.logstash.enabled=false -E 'output.elasticsearch.hosts=["localhost:9200"]'
+		-- Load the dashboards for Logstash output:
+		> .\winlogbeat.exe setup -e -E output.logstash.enabled=false -E 'output.elasticsearch.hosts=["localhost:9200"]' -E setup.kibana.host=localhost:5601
+		-- Test you Winlogbeat configuration file with: '.\winlogbeat.exe test config -c .\winlogbeat.yml -e'
+		-- If there were errors, recheck previous setup steps.
+		-- Execute '.\winlogbeat.exe -c winlogbeat.yml'
+		-- Give it a few minutes, then check the kibana web console. Select the "Discover" tab. Depending on how many backlogs its going through, you may need to wait up to 15 minutes before you start seeing things in Kibana. You can also play with the timespan it the top left to check for older events. That may have already been processed.
+		-- Assuming that the events are successfuly making it into elasticsearch via logstash, you can now install these processes as Windows services.
+	- End testing:
+		-- Enter Ctrl-C in the console running winlogbeat. Answer yes to any prompts. When stopped, close the console.
+		-- Enter Ctrl-C in the console running kibana. Answer yes to any prompts. When stopped, close the console.
+		-- Enter Ctrl-C in the console running logstash. Answer yes to any prompts. When stopped, close the console.
+		-- Enter Ctrl-C in the console running elasticsearch. Answer yes to any prompts. When stopped, close the console.
+
+#####################################
+- Go back and edit 'winlogbeat.yml' and add any additional logs (e.g. forwardedevents) as desired.
+- Do another quick test of the config file for validation: '.\winlogbeat.exe test config -c .\winlogbeat.yml -e'
+	-- For high volume logs, its recommented to set the 'ignore_older:' option and set it very low ("1s", or one second, is the lowest that I'm aware of).
+
+
+######################################
+Services
+
+* Elasticsearch
+	- > '.\elasticsearch-service.bat install elasticsearch'
+	- > 'Start-Service elasticsearch'
+
+* Kibana
+	- Copy file 'Elastic\sample-minimal.xml' to 'Elastic\kibana-6.4.2-windows-x86_64\bin\kibana-service.xml'
+	- Copy file 'Elastic\WinSW.NET4.exe' to 'Elastic\kibana-6.4.2-windows-x86_64\bin\kibana-service.exe'
+	- Edit 'Elastic\kibana-6.4.2-windows-x86_64\bin\kibana-service.xml':
+		-- Set '<id>kibana</id>'
+		-- Set '<name>Kibana-6.4.2</name>'
+		-- Set '<description>Windows service wrapper running the Kibana 6.4.2 batch script.</description>'
+		-- Set '<executable>%BASE%\kibana-service.exe</executable>'
+		-- Add '<startmode>Automatic</startmode>'
+		-- Add '<delayedAutoStart/>'
+		-- Add '<depend>elasticsearch</depend>'
+	- Execute '.\kibana-service.exe install'
+	- > 'Start-Service kibana'
+
+* Logstash
+	- Copy file 'Elastic\sample-minimal.xml' to 'Elastic\logstash-6.4.2\bin\logstash-service.xml'
+	- Copy file 'Elastic\WinSW.NET4.exe' to 'Elastic\logstash-6.4.2\bin\logstash-service.exe'
+	- Edit 'Elastic\logstash-6.4.2\bin\logstash-service.xml':
+		-- Set '<id>logstash</id>'
+		-- Set '<name>Logstash-6.4.2</name>'
+		-- Set '<description>Windows service wrapper running the Logstash 6.4.2 batch script.</description>'
+		-- Set '<executable>%BASE%\logstash-service.exe</executable>'
+		-- Add '<arguments>-f logstash.conf</arguments>'
+		-- Add '<stoptimeout>20 sec</stoptimeout>'
+		-- Add '<startmode>Automatic</startmode>'
+		-- Add '<delayedAutoStart/>'
+		-- Add '<depend>elasticsearch</depend>'
+		-- Add '<waithint>20 sec</waithint>'
+		-- Add '<sleeptime>2 sec</sleeptime>'
+	- Execute '.\logstash-service.exe install'
+	- > 'Start-Service logstash'
+
+* Winlogbeat
+	- '.\install-service-winlogbeat.ps1'
+	- 'Stop-Service winlogbeat'
+	- "cmd /c 'sc config winlogbeat start= delayed-auto depend= logstash'"
+	- 'Start-Service winlogbeat'
+
+
+####################################
+Steps to complete from the server
+
+1. Open an elevated 
+
+
+http://brianreiter.org/2010/01/29/powershells-object-pipeline-corrupts-piped-binary-data/
+
+
+Test Winlogbeat
+winlogbeat.exe -c winlogbeat.yml
